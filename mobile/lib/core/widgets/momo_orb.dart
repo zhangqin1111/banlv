@@ -7,7 +7,16 @@ import '../../app/theme/app_theme.dart';
 
 enum MomoMotion { idle, hop, swim, cuddle, excited }
 
-enum MomoExpression { softSmile, happy, curious, sleepy, cheer }
+enum MomoExpression {
+  softSmile,
+  happy,
+  curious,
+  sleepy,
+  cheer,
+  sad,
+  worried,
+  firedUp,
+}
 
 class MomoOrb extends StatefulWidget {
   const MomoOrb({
@@ -191,6 +200,47 @@ class _MomoOrbState extends State<MomoOrb> with SingleTickerProviderStateMixin {
           emoteIcon: Icons.stars_rounded,
           emoteColor: AppColors.sun,
           blushBoost: 0.04,
+        );
+      case MomoExpression.sad:
+        return const _FaceProfile(
+          browLeftAngle: -0.18,
+          browRightAngle: 0.18,
+          eyeOpenFactor: 0.84,
+          pupilShiftX: 0,
+          pupilShiftY: 0.08,
+          mouthStyle: _MouthStyle.frown,
+          mouthWidthFactor: 0.16,
+          mouthHeightFactor: 0.08,
+          emoteIcon: Icons.water_drop_rounded,
+          emoteColor: AppColors.mistBlue,
+          blushBoost: 0.02,
+        );
+      case MomoExpression.worried:
+        return const _FaceProfile(
+          browLeftAngle: -0.22,
+          browRightAngle: 0.22,
+          eyeOpenFactor: 0.92,
+          pupilShiftX: 0.03,
+          pupilShiftY: 0.04,
+          mouthStyle: _MouthStyle.frown,
+          mouthWidthFactor: 0.15,
+          mouthHeightFactor: 0.07,
+          emoteIcon: Icons.favorite_border_rounded,
+          emoteColor: AppColors.peachGlow,
+        );
+      case MomoExpression.firedUp:
+        return const _FaceProfile(
+          browLeftAngle: -0.3,
+          browRightAngle: 0.3,
+          eyeOpenFactor: 1.02,
+          pupilShiftX: 0,
+          pupilShiftY: -0.02,
+          mouthStyle: _MouthStyle.openSmile,
+          mouthWidthFactor: 0.18,
+          mouthHeightFactor: 0.12,
+          emoteIcon: Icons.local_fire_department_rounded,
+          emoteColor: AppColors.peachGlow,
+          blushBoost: 0.06,
         );
       case MomoExpression.softSmile:
         return const _FaceProfile(
@@ -584,7 +634,7 @@ class _Eye extends StatelessWidget {
   }
 }
 
-enum _MouthStyle { smile, grin, openSmile }
+enum _MouthStyle { smile, grin, openSmile, frown }
 
 class _Mouth extends StatelessWidget {
   const _Mouth({
@@ -619,14 +669,23 @@ class _MouthPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final Path smilePath = Path()
-      ..moveTo(size.width * 0.14, size.height * 0.34)
-      ..quadraticBezierTo(
-        size.width * 0.5,
-        size.height * (style == _MouthStyle.grin ? 1.2 : 1.02),
-        size.width * 0.86,
-        size.height * 0.34,
-      );
+    final Path smilePath = style == _MouthStyle.frown
+        ? (Path()
+          ..moveTo(size.width * 0.18, size.height * 0.7)
+          ..quadraticBezierTo(
+            size.width * 0.5,
+            size.height * 0.18,
+            size.width * 0.82,
+            size.height * 0.7,
+          ))
+        : (Path()
+          ..moveTo(size.width * 0.14, size.height * 0.34)
+          ..quadraticBezierTo(
+            size.width * 0.5,
+            size.height * (style == _MouthStyle.grin ? 1.2 : 1.02),
+            size.width * 0.86,
+            size.height * 0.34,
+          ));
 
     if (style == _MouthStyle.openSmile) {
       final Paint fill = Paint()

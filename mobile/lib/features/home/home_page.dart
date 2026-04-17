@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -124,6 +125,34 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  List<HomeDuoLineModel> _heroDuoLines(HomeSummaryModel summary) {
+    if (summary.duoChatLines.isNotEmpty) {
+      return summary.duoChatLines;
+    }
+    return const <HomeDuoLineModel>[
+      HomeDuoLineModel(
+        speaker: 'momo',
+        text: '今天先把肩膀放松一点吧。',
+        mood: 'soft_smile',
+      ),
+      HomeDuoLineModel(
+        speaker: 'lulu',
+        text: '嗯，我们陪你慢慢把这口气放下来。',
+        mood: 'cheer',
+      ),
+      HomeDuoLineModel(
+        speaker: 'momo',
+        text: '如果只想待一会，也已经很好了。',
+        mood: 'happy',
+      ),
+      HomeDuoLineModel(
+        speaker: 'lulu',
+        text: '那我就把小岛再暖一点，等你靠过来。',
+        mood: 'curious',
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
@@ -170,6 +199,8 @@ class _HomePageState extends State<HomePage> {
                     growthPoints: summary.growthPoints,
                     motion: _heroMotion(summary.momoStage),
                     expression: _heroExpression(summary.momoStage),
+                    duoChatLines: _heroDuoLines(summary),
+                    duoChatTurnLimit: summary.duoChatTurnLimit,
                     onMomoTap: () => _cycleHeroWhisper(
                       summary.momoStage,
                       summary.whisperLines,
@@ -195,6 +226,8 @@ class _HeroIsland extends StatefulWidget {
     required this.growthPoints,
     required this.motion,
     required this.expression,
+    this.duoChatLines = const <HomeDuoLineModel>[],
+    this.duoChatTurnLimit = 4,
     required this.onMomoTap,
     required this.onTalkTap,
     required this.onWeatherTap,
@@ -206,6 +239,8 @@ class _HeroIsland extends StatefulWidget {
   final int growthPoints;
   final MomoMotion motion;
   final MomoExpression expression;
+  final List<HomeDuoLineModel> duoChatLines;
+  final int duoChatTurnLimit;
   final VoidCallback onMomoTap;
   final VoidCallback onTalkTap;
   final VoidCallback onWeatherTap;
@@ -218,6 +253,8 @@ class _HeroIsland extends StatefulWidget {
 
 class _HeroIslandState extends State<_HeroIsland> with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  Timer? _duoTimer;
+  int _duoTurnIndex = 0;
 
   @override
   void initState() {
@@ -226,12 +263,134 @@ class _HeroIslandState extends State<_HeroIsland> with SingleTickerProviderState
       vsync: this,
       duration: const Duration(milliseconds: 6200),
     )..repeat();
+    _restartDuoLoop();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HeroIsland oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.duoChatLines != widget.duoChatLines ||
+        oldWidget.duoChatTurnLimit != widget.duoChatTurnLimit) {
+      _restartDuoLoop();
+    }
   }
 
   @override
   void dispose() {
+    _duoTimer?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  int get _duoTurnCount => math.min(widget.duoChatLines.length, widget.duoChatTurnLimit);
+
+  void _restartDuoLoop({bool resetIndex = true}) {
+    _duoTimer?.cancel();
+    if (resetIndex) {
+      _duoTurnIndex = 0;
+    }
+    if (_duoTurnCount <= 1) {
+      return;
+    }
+    _duoTimer = Timer.periodic(const Duration(seconds: 5), (Timer timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_duoTurnIndex >= _duoTurnCount - 1) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _duoTurnIndex += 1;
+      });
+    });
+  }
+
+  HomeDuoLineModel? _latestLineFor(String speaker) {
+    if (_duoTurnCount == 0) {
+      return null;
+    }
+    for (int index = math.min(_duoTurnIndex, _duoTurnCount - 1); index >= 0; index -= 1) {
+      final HomeDuoLineModel line = widget.duoChatLines[index];
+      if (line.speaker == speaker) {
+        return line;
+      }
+    }
+    return null;
+  }
+
+  HomeDuoLineModel? get _activeDuoLine {
+    if (_duoTurnCount == 0) {
+      return null;
+    }
+    return widget.duoChatLines[math.min(_duoTurnIndex, _duoTurnCount - 1)];
+  }
+
+  MomoExpression _expressionFromMood(String mood) {
+    final String normalized = mood.replaceAllMapped(
+      RegExp(r'([a-z0-9])([A-Z])'),
+      (Match match) => '${match.group(1)}_${match.group(2)!.toLowerCase()}',
+    ).toLowerCase();
+    switch (normalized) {
+      case 'happy':
+        return MomoExpression.happy;
+      case 'curious':
+        return MomoExpression.curious;
+      case 'sleepy':
+        return MomoExpression.sleepy;
+      case 'cheer':
+        return MomoExpression.cheer;
+      case 'sad':
+        return MomoExpression.sad;
+      case 'worried':
+        return MomoExpression.worried;
+      case 'fired_up':
+        return MomoExpression.firedUp;
+      case 'soft_smile':
+      default:
+        return MomoExpression.softSmile;
+    }
+  }
+
+  MomoMotion _motionFromMood(String mood, {required bool active}) {
+    final String normalized = mood.replaceAllMapped(
+      RegExp(r'([a-z0-9])([A-Z])'),
+      (Match match) => '${match.group(1)}_${match.group(2)!.toLowerCase()}',
+    ).toLowerCase();
+    switch (normalized) {
+      case 'happy':
+        return active ? MomoMotion.hop : MomoMotion.idle;
+      case 'curious':
+        return MomoMotion.swim;
+      case 'sleepy':
+      case 'sad':
+        return MomoMotion.cuddle;
+      case 'cheer':
+      case 'fired_up':
+        return active ? MomoMotion.excited : MomoMotion.hop;
+      case 'worried':
+        return MomoMotion.idle;
+      case 'soft_smile':
+      default:
+        return active ? MomoMotion.swim : MomoMotion.idle;
+    }
+  }
+
+  void _handleCharacterTap() {
+    if (_duoTurnCount == 0) {
+      widget.onMomoTap();
+      return;
+    }
+    _duoTimer?.cancel();
+    setState(() {
+      if (_duoTurnIndex >= _duoTurnCount - 1) {
+        _duoTurnIndex = 0;
+      } else {
+        _duoTurnIndex += 1;
+      }
+    });
+    _restartDuoLoop(resetIndex: false);
   }
 
   @override
@@ -283,6 +442,9 @@ class _HeroIslandState extends State<_HeroIsland> with SingleTickerProviderState
                 final double momoDriftX = momoOffsetX * 2.2;
                 final double momoDriftY = momoOffsetY * 1.9;
                 final double edgeInset = math.max(16, sceneWidth * 0.04);
+                final HomeDuoLineModel? momoLine = _latestLineFor('momo');
+                final HomeDuoLineModel? luluLine = _latestLineFor('lulu');
+                final HomeDuoLineModel? activeLine = _activeDuoLine;
 
                 return Stack(
                   clipBehavior: Clip.none,
@@ -496,36 +658,35 @@ class _HeroIslandState extends State<_HeroIsland> with SingleTickerProviderState
                       child: const _FloatParticle(size: 8),
                     ),
                     Positioned(
-                      left: (sceneWidth * 0.47) + momoDriftX,
-                      bottom: sceneHeight * 0.38 + momoDriftY,
+                      left: (sceneWidth * 0.31) + momoDriftX,
+                      right: sceneWidth * 0.08,
+                      bottom: sceneHeight * 0.31 + momoDriftY,
                       child: SizedBox(
-                        width: 194,
-                        height: 180,
+                        height: 238,
                         child: Stack(
-                          alignment: Alignment.center,
                           clipBehavior: Clip.none,
                           children: <Widget>[
                             Positioned(
-                              left: 8,
-                              top: 20,
+                              left: sceneWidth * 0.06,
+                              top: 34,
                               child: Transform.rotate(
-                                angle: wave * 0.04,
+                                angle: wave * 0.03,
                                 child: Transform.scale(
-                                  scale: 0.82 + (((depthScale - 0.5) / 0.24) * 0.18),
+                                  scale: 0.84 + (((depthScale - 0.5) / 0.24) * 0.16),
                                   alignment: Alignment.center,
-                                  child: const _SkyTrail(width: 186, height: 98),
+                                  child: const _SkyTrail(width: 220, height: 110),
                                 ),
                               ),
                             ),
                             Positioned(
-                              left: 52,
-                              bottom: 8,
+                              left: 38,
+                              bottom: 18,
                               child: Container(
-                                width: 42 + (depthScale * 18),
-                                height: 10 + (depthScale * 6),
+                                width: 48 + (depthScale * 20),
+                                height: 12 + (depthScale * 6),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(999),
-                                  color: AppColors.mistBlue.withValues(alpha: 0.1 + (depthScale * 0.04)),
+                                  color: AppColors.mistBlue.withValues(alpha: 0.12 + (depthScale * 0.04)),
                                   boxShadow: <BoxShadow>[
                                     BoxShadow(
                                       color: AppColors.mistBlue.withValues(alpha: 0.08),
@@ -537,37 +698,127 @@ class _HeroIslandState extends State<_HeroIsland> with SingleTickerProviderState
                               ),
                             ),
                             Positioned(
-                              left: 54,
-                              top: 18,
+                              right: 30,
+                              bottom: 14,
+                              child: Container(
+                                width: 40 + (depthScale * 16),
+                                height: 10 + (depthScale * 6),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: AppColors.peachGlow.withValues(alpha: 0.18),
+                                  boxShadow: <BoxShadow>[
+                                    BoxShadow(
+                                      color: AppColors.peachGlow.withValues(alpha: 0.1),
+                                      blurRadius: 14,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (momoLine != null)
+                              Positioned(
+                                left: -8,
+                                top: activeLine?.speaker == 'momo' ? -18 : -2,
+                                child: Opacity(
+                                  opacity: activeLine?.speaker == 'momo' ? 1 : 0.76,
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 320),
+                                    child: Transform.rotate(
+                                      key: ValueKey<String>('momo-${momoLine.text}'),
+                                      angle: -0.04,
+                                      child: MomoQuoteBubble(
+                                        text: momoLine.text,
+                                        label: 'momo',
+                                        tint: AppColors.lavender,
+                                        compact: true,
+                                        maxWidth: 148,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            else
+                              Positioned(
+                                left: -8,
+                                top: -18,
+                                child: Transform.rotate(
+                                  angle: -0.04,
+                                  child: MomoQuoteBubble(
+                                    text: widget.whisperLine,
+                                    label: 'momo',
+                                    tint: AppColors.lavender,
+                                    compact: true,
+                                    maxWidth: 148,
+                                  ),
+                                ),
+                              ),
+                            if (luluLine != null)
+                              Positioned(
+                                right: -4,
+                                top: activeLine?.speaker == 'lulu' ? 42 : 58,
+                                child: Opacity(
+                                  opacity: activeLine?.speaker == 'lulu' ? 1 : 0.72,
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 320),
+                                    child: Transform.rotate(
+                                      key: ValueKey<String>('lulu-${luluLine.text}'),
+                                      angle: 0.05,
+                                      child: MomoQuoteBubble(
+                                        text: luluLine.text,
+                                        label: 'lulu',
+                                        tint: AppColors.peachGlow,
+                                        compact: true,
+                                        maxWidth: 142,
+                                        align: CrossAxisAlignment.end,
+                                        tailOnRight: true,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            Positioned(
+                              left: 18,
+                              bottom: 26,
                               child: Transform.rotate(
-                                angle: wave * 0.035,
+                                angle: wave * 0.032,
                                 child: Transform.scale(
                                   scale: depthScale,
                                   alignment: Alignment.center,
                                   child: MomoOrb(
                                     size: momoSize,
                                     glowColor: AppColors.lavender,
-                                    motion: widget.motion,
-                                    expression: widget.expression,
-                                    onTap: widget.onMomoTap,
+                                    motion: _motionFromMood(
+                                      momoLine?.mood ?? 'soft_smile',
+                                      active: activeLine?.speaker == 'momo',
+                                    ),
+                                    expression: _expressionFromMood(
+                                      momoLine?.mood ?? 'soft_smile',
+                                    ),
+                                    onTap: _handleCharacterTap,
                                   ),
                                 ),
                               ),
                             ),
                             Positioned(
-                              left: -8,
-                              top: -12,
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 260),
-                                switchInCurve: Curves.easeOutCubic,
-                                switchOutCurve: Curves.easeInCubic,
-                                child: Transform.rotate(
-                                  key: ValueKey<String>(widget.whisperLine),
-                                  angle: -0.04,
-                                  child: MomoQuoteBubble(
-                                    text: widget.whisperLine,
-                                    tint: AppColors.lavender,
-                                    compact: true,
+                              right: 8,
+                              bottom: 46,
+                              child: Transform.rotate(
+                                angle: -wave * 0.028,
+                                child: Transform.scale(
+                                  scale: depthScale * 0.8,
+                                  alignment: Alignment.center,
+                                  child: MomoOrb(
+                                    size: momoSize * 0.78,
+                                    glowColor: AppColors.peachGlow,
+                                    motion: _motionFromMood(
+                                      luluLine?.mood ?? 'cheer',
+                                      active: activeLine?.speaker == 'lulu',
+                                    ),
+                                    expression: _expressionFromMood(
+                                      luluLine?.mood ?? 'cheer',
+                                    ),
+                                    onTap: _handleCharacterTap,
                                   ),
                                 ),
                               ),

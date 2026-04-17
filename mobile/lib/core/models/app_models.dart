@@ -29,11 +29,13 @@ class GuestIdentity {
 
 class HomeSummaryModel {
   const HomeSummaryModel({
-    required this.momoStage,
-    required this.growthPoints,
-    required this.lastSummary,
-    required this.entryBadges,
-    required this.whisperLines,
+    this.momoStage = 'seed',
+    this.growthPoints = 0,
+    this.lastSummary = '今天想从哪里开始都可以。',
+    this.entryBadges = const <String>[],
+    this.whisperLines = const <String>[],
+    this.duoChatLines = const <HomeDuoLineModel>[],
+    this.duoChatTurnLimit = 4,
   });
 
   factory HomeSummaryModel.fromJson(Map<String, dynamic> json) {
@@ -48,6 +50,11 @@ class HomeSummaryModel {
           .map((dynamic item) => item.toString())
           .where((String item) => item.trim().isNotEmpty)
           .toList(),
+      duoChatLines: (json['duo_chat_lines'] as List<dynamic>? ?? <dynamic>[])
+          .whereType<Map>()
+          .map((Map item) => HomeDuoLineModel.fromJson(Map<String, dynamic>.from(item)))
+          .toList(),
+      duoChatTurnLimit: json['duo_chat_turn_limit'] as int? ?? 4,
     );
   }
 
@@ -56,6 +63,28 @@ class HomeSummaryModel {
   final String lastSummary;
   final List<String> entryBadges;
   final List<String> whisperLines;
+  final List<HomeDuoLineModel> duoChatLines;
+  final int duoChatTurnLimit;
+}
+
+class HomeDuoLineModel {
+  const HomeDuoLineModel({
+    required this.speaker,
+    required this.text,
+    required this.mood,
+  });
+
+  factory HomeDuoLineModel.fromJson(Map<String, dynamic> json) {
+    return HomeDuoLineModel(
+      speaker: json['speaker'] as String? ?? 'momo',
+      text: json['text'] as String? ?? '',
+      mood: json['mood'] as String? ?? 'soft_smile',
+    );
+  }
+
+  final String speaker;
+  final String text;
+  final String mood;
 }
 
 class InviteCardModel {
@@ -76,7 +105,7 @@ class InviteCardModel {
     if (type == 'chat') {
       subtitle = '先把心里的话放下来。';
     } else if (type == 'mode') {
-      subtitle = mode == 'anger_mode' ? '去安全释放一下' : '去对应的小场景';
+      subtitle = mode == 'anger_mode' ? '去安全释放一下。' : '去对应的小场景。';
     } else if (type == 'blind_box') {
       subtitle = '也许会有一句刚好适合你的话。';
     }
@@ -109,8 +138,8 @@ class MoodWeatherResult {
       empathyText: json['empathy_text'] as String? ?? '',
       recommendedMode: json['recommended_mode'] as String? ?? 'low_mode',
       inviteCards: (json['invite_cards'] as List<dynamic>? ?? <dynamic>[])
-          .whereType<Map<String, dynamic>>()
-          .map(InviteCardModel.fromJson)
+          .whereType<Map>()
+          .map((Map item) => InviteCardModel.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
     );
   }
@@ -196,8 +225,8 @@ class GrowthSummaryModel {
       currentStage: json['current_stage'] as String? ?? 'seed',
       nextStageAt: json['next_stage_at'] as int? ?? 10,
       recentEvents: (json['recent_events'] as List<dynamic>? ?? <dynamic>[])
-          .whereType<Map<String, dynamic>>()
-          .map(GrowthEventModel.fromJson)
+          .whereType<Map>()
+          .map((Map item) => GrowthEventModel.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
     );
   }
@@ -224,8 +253,7 @@ class RecordItem {
     return RecordItem(
       id: json['id'] as String? ?? '',
       sourceType:
-          json['source_type'] as String? ??
-          _inferRecordType(json['title'] as String? ?? ''),
+          json['source_type'] as String? ?? _inferRecordType(json['title'] as String? ?? ''),
       title: json['title'] as String? ?? '',
       subtitle: json['subtitle'] as String? ?? '',
       timeLabel: _timeLabelFor(createdAt),

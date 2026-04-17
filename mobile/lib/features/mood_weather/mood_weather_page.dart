@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/theme/app_theme.dart';
-import '../../core/constants/app_copy.dart';
 import '../../core/models/app_models.dart';
 import '../../core/widgets/eb_glass_card.dart';
 import '../../core/widgets/eb_primary_button.dart';
@@ -176,32 +175,30 @@ class _MoodWeatherPageState extends State<MoodWeatherPage> {
               AppColors.softCream,
             ],
           ),
-        ),
-        child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.md),
-          children: <Widget>[
-            _WeatherHero(option: option),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              AppCopy.moodWeatherPrompt,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              '原始需求里最重要的不是“判断对错”，而是让不同情绪进入不同陪伴方式。我们先从今天的小天气开始。',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.subInk,
-                  ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            EbGlassCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    '今天更像哪一片天气？',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+          ),
+          child: ListView(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            children: <Widget>[
+              _WeatherHero(option: option),
+              const SizedBox(height: AppSpacing.md),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+                child: Text(
+                  '先把这一刻轻轻挂到今天的小天气里。',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              EbGlassCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      '今天像哪种天气？',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                   const SizedBox(height: AppSpacing.sm),
                   Wrap(
                     spacing: AppSpacing.sm,
@@ -226,18 +223,33 @@ class _MoodWeatherPageState extends State<MoodWeatherPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text(
-                    '这阵感觉现在有多满？',
-                    style: Theme.of(context).textTheme.titleMedium,
+                  Row(
+                    children: <Widget>[
+                      Text(
+                        '这阵感觉有多满？',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                          vertical: AppSpacing.xs,
+                        ),
+                        decoration: BoxDecoration(
+                          color: option.accent.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '${_intensity.round()} / 10',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: AppColors.ink,
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    '${_intensity.round()} / 10',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: AppColors.ink,
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
                   Slider(
                     value: _intensity,
                     min: 1,
@@ -264,12 +276,12 @@ class _MoodWeatherPageState extends State<MoodWeatherPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    '要不要再写一句此刻？',
+                    '再写一句此刻',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
-                    '可以是一句话，也可以只是一小段碎碎念。不写也没关系。',
+                    '一句话就够了，不写也没关系。',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: AppColors.subInk,
                         ),
@@ -330,6 +342,11 @@ class _MoodWeatherPageState extends State<MoodWeatherPage> {
                           Expanded(child: Text(_modeLabel(_result!.recommendedMode))),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      '接下来想怎么被陪着？',
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ],
                 ),
@@ -420,19 +437,21 @@ class _WeatherHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
     return EbGlassCard(
       padding: EdgeInsets.zero,
       child: Container(
-        height: 230,
+        height: 204,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(AppRadii.card),
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: <Color>[
-              option.glow.withValues(alpha: 0.5),
-              Colors.white.withValues(alpha: 0.9),
-              option.accent.withValues(alpha: 0.24),
+              option.glow.withValues(alpha: 0.34),
+              Colors.white.withValues(alpha: 0.94),
+              option.accent.withValues(alpha: 0.2),
             ],
           ),
         ),
@@ -452,48 +471,113 @@ class _WeatherHero extends StatelessWidget {
                 ),
                 child: Text(
                   option.weatherTitle,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  style: theme.textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w700,
                       ),
                 ),
               ),
             ),
             Positioned(
-              left: 20,
-              right: 20,
-              top: 70,
-              child: Text(
-                option.sceneHint,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              left: 24,
+              top: 74,
+              right: 132,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    '先替今天认一认这阵天气。',
+                    style: theme.textTheme.titleMedium?.copyWith(
                       color: AppColors.ink,
+                      fontWeight: FontWeight.w800,
+                      height: 1.2,
                     ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    option.sceneHint,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: AppColors.subInk,
+                      height: 1.42,
+                    ),
+                  ),
+                ],
               ),
             ),
             Positioned(
               left: 34,
-              top: 136,
+              top: 128,
               child: _FloatingDot(
-                color: option.accent.withValues(alpha: 0.32),
-                size: 16,
+                color: option.accent.withValues(alpha: 0.2),
+                size: 12,
               ),
             ),
             Positioned(
-              right: 42,
-              top: 116,
+              right: 50,
+              top: 54,
               child: _FloatingDot(
-                color: option.glow.withValues(alpha: 0.42),
-                size: 24,
+                color: option.glow.withValues(alpha: 0.28),
+                size: 18,
               ),
             ),
             Positioned(
-              right: 74,
-              top: 56,
-              child: Icon(option.icon, size: 42, color: option.accent),
+              right: 28,
+              top: 26,
+              child: Icon(
+                option.icon,
+                size: 28,
+                color: option.accent.withValues(alpha: 0.92),
+              ),
             ),
-            Align(
-              alignment: const Alignment(0, 0.6),
-              child: MomoOrb(size: 124, glowColor: option.accent),
+            Positioned(
+              right: 18,
+              bottom: 6,
+              child: Column(
+                children: <Widget>[
+                  MomoOrb(size: 118, glowColor: option.accent),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.sm,
+                      vertical: AppSpacing.xs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.72),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      option.label,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: AppColors.subInk,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: -18,
+              child: IgnorePointer(
+                child: Center(
+                  child: Container(
+                    width: 180,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      color: option.accent.withValues(alpha: 0.08),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: option.accent.withValues(alpha: 0.12),
+                          blurRadius: 28,
+                          spreadRadius: 6,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

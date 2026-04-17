@@ -309,6 +309,19 @@ class TreeholeFlowTests(unittest.TestCase):
         self.assertTrue(all(line.strip() for line in data["whisper_lines"]))
         self.assertEqual(len(data["whisper_lines"]), len(set(data["whisper_lines"])))
 
+    def test_home_summary_returns_duo_chat_lines(self) -> None:
+        guest = self.client.post("/v1/auth/guest")
+        device_id = guest.json()["device_id"]
+        headers = {"X-Device-Id": device_id}
+
+        summary = self.client.get("/v1/home/summary", headers=headers)
+        self.assertEqual(summary.status_code, 200)
+        data = summary.json()
+        self.assertEqual(data["duo_chat_turn_limit"], 4)
+        self.assertGreaterEqual(len(data["duo_chat_lines"]), 4)
+        self.assertEqual(data["duo_chat_lines"][0]["speaker"], "momo")
+        self.assertTrue(all(item["text"].strip() for item in data["duo_chat_lines"]))
+
     def test_treehole_long_session_compacts_memory_summary(self) -> None:
         guest = self.client.post("/v1/auth/guest")
         device_id = guest.json()["device_id"]

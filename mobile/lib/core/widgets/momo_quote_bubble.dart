@@ -10,6 +10,8 @@ class MomoQuoteBubble extends StatelessWidget {
     this.tint = AppColors.lavender,
     this.compact = false,
     this.align = CrossAxisAlignment.start,
+    this.maxWidth,
+    this.tailOnRight = false,
   });
 
   final String text;
@@ -17,6 +19,8 @@ class MomoQuoteBubble extends StatelessWidget {
   final Color tint;
   final bool compact;
   final CrossAxisAlignment align;
+  final double? maxWidth;
+  final bool tailOnRight;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +31,7 @@ class MomoQuoteBubble extends StatelessWidget {
       clipBehavior: Clip.none,
       children: <Widget>[
         Container(
-          constraints: BoxConstraints(maxWidth: compact ? 220 : 260),
+          constraints: BoxConstraints(maxWidth: maxWidth ?? (compact ? 220 : 260)),
           padding: EdgeInsets.fromLTRB(
             horizontalPadding,
             verticalPadding,
@@ -70,10 +74,11 @@ class MomoQuoteBubble extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: compact ? 18 : 22,
+          left: tailOnRight ? null : (compact ? 18 : 22),
+          right: tailOnRight ? (compact ? 18 : 22) : null,
           bottom: -6,
           child: Transform.rotate(
-            angle: 0.78,
+            angle: tailOnRight ? -0.78 : 0.78,
             child: Container(
               width: 14,
               height: 14,

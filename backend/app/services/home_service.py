@@ -10,7 +10,7 @@ from app.models.home_whisper import HomeWhisper
 from app.models.mode_session import ModeSession
 from app.models.mood_entry import MoodEntry
 from app.models.treehole import TreeholeSession
-from app.schemas.home import HomeSummaryResponse
+from app.schemas.home import HomeDuoLineResponse, HomeSummaryResponse
 from app.services.growth_service import build_growth_summary
 from app.services.llm_client import QwenClient
 from app.services.momo_agent_service import build_home_agent_context
@@ -21,6 +21,8 @@ WHISPER_COUNT = 3
 WHISPER_TTL = timedelta(hours=8)
 WHISPER_CHAR_LIMIT = 28
 WHISPER_VERSION = "v2"
+DUO_CHAT_COUNT = 4
+DUO_CHAT_CHAR_LIMIT = 24
 qwen_client = QwenClient()
 
 
@@ -350,6 +352,216 @@ def _fallback_whispers(
     )
 
 
+def _trim_duo_line(text: str) -> str:
+    return _trim_summary(text, DUO_CHAT_CHAR_LIMIT)
+
+
+def _fallback_duo_chat(
+    *,
+    agent_profile: AgentProfile | None,
+    latest_summary: str,
+    latest_mood: MoodEntry | None,
+) -> list[HomeDuoLineResponse]:
+    emotion = latest_mood.emotion if latest_mood is not None else (
+        agent_profile.last_emotion if agent_profile is not None else "neutral"
+    )
+    support_preference = (
+        agent_profile.support_preference if agent_profile is not None else "listen"
+    )
+    latest_hint = _trim_summary(latest_summary, 18).replace("。", "")
+
+    if any(word in emotion for word in ("生气", "烦", "怒")):
+        script = [
+            ("momo", "worried", "那股顶着的劲还在。"),
+            ("lulu", "fired_up", "嗯，我们先站你这边，再慢慢把火放下。"),
+            ("momo", "soft_smile", "不用立刻把自己劝圆。"),
+            ("lulu", "cheer", "等你准备好，我们再把心口慢慢松开。"),
+        ]
+    elif any(word in emotion for word in ("开心", "轻松", "平静")):
+        script = [
+            ("momo", "happy", "今天这里亮起来了一点。"),
+            ("lulu", "cheer", "那我们替他把这点亮光多留一会。"),
+            ("momo", "curious", f"像“{latest_hint}”这样的时刻也值得记住。"),
+            ("lulu", "soft_smile", "嗯，小小的好也可以被认真接住。"),
+        ]
+    elif support_preference == "organize":
+        script = [
+            ("momo", "curious", "今天脑子里像堆了很多线。"),
+            ("lulu", "soft_smile", "那我们只帮他捡最前面这一小根。"),
+            ("momo", "worried", f"先从“{latest_hint}”这一块开始。"),
+            ("lulu", "cheer", "剩下的，不用一下子都弄明白。"),
+        ]
+    elif support_preference == "vent":
+        script = [
+            ("momo", "worried", "我听见那股委屈还没下去。"),
+            ("lulu", "fired_up", "那就先让它被好好看见，不用急着懂事。"),
+            ("momo", "softSmile", "嗯，我们先陪他把那句话放出来。"),
+            ("lulu", "cheer", "说出来一点，已经是在松开了。"),
+        ]
+    else:
+        script = [
+            ("momo", "soft_smile", "今天的你辛苦了。"),
+            ("lulu", "cheer", "黑夜再长，也会有一点星光。"),
+            ("momo", "sleepy", f"我们先替“{latest_hint}”留个软一点的位置。"),
+            ("lulu", "happy", "嗯，剩下的慢慢来也没关系。"),
+        ]
+
+    turns = [
+        HomeDuoLineResponse(
+            speaker=speaker,
+            mood=mood,
+            text=_trim_duo_line(text),
+        )
+        for speaker, mood, text in script[:DUO_CHAT_COUNT]
+    ]
+    return turns
+
+
+def _normalize_duo_mood(raw: str) -> str:
+    normalized = raw.strip().lower().replace("-", "_")
+    allowed = {
+        "soft_smile",
+        "happy",
+        "curious",
+        "sleepy",
+        "cheer",
+        "sad",
+        "worried",
+        "fired_up",
+    }
+    return normalized if normalized in allowed else "soft_smile"
+
+
+def _parse_duo_chat_lines(raw_text: str) -> list[HomeDuoLineResponse]:
+    cleaned = raw_text.strip()
+    if not cleaned:
+        return []
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    expected_speakers = ["momo", "lulu", "momo", "lulu"]
+    turns: list[HomeDuoLineResponse] = []
+    for index, item in enumerate(parsed[:DUO_CHAT_COUNT]):
+        if not isinstance(item, dict):
+            continue
+        speaker = str(item.get("speaker") or expected_speakers[index]).strip().lower()
+        if speaker not in {"momo", "lulu"}:
+            speaker = expected_speakers[index]
+        text = _trim_duo_line(str(item.get("text") or ""))
+        if not text:
+            continue
+        turns.append(
+            HomeDuoLineResponse(
+                speaker=speaker,
+                text=text,
+                mood=_normalize_duo_mood(str(item.get("mood") or "soft_smile")),
+            )
+        )
+
+    if len(turns) < 2:
+        return []
+
+    normalized_turns: list[HomeDuoLineResponse] = []
+    for index, turn in enumerate(turns[:DUO_CHAT_COUNT]):
+        normalized_turns.append(
+            HomeDuoLineResponse(
+                speaker=expected_speakers[index],
+                text=turn.text,
+                mood=turn.mood,
+            )
+        )
+    return normalized_turns
+
+
+def _build_duo_chat_context(
+    *,
+    agent_profile: AgentProfile | None,
+    latest_summary: str,
+    latest_mood: MoodEntry | None,
+) -> str:
+    parts = [f"最近摘要：{_trim_summary(latest_summary, 72)}"]
+    if latest_mood is not None:
+        note = _trim_summary(latest_mood.note_text or "", 42)
+        note_part = f"；备注：{note}" if note else ""
+        parts.append(
+            f"最近情绪：{latest_mood.emotion}，强度 {latest_mood.intensity}/10{note_part}"
+        )
+    if agent_profile is not None:
+        if agent_profile.support_preference:
+            parts.append(f"更喜欢被这样陪：{agent_profile.support_preference}")
+        if agent_profile.relationship_note:
+            parts.append(f"关系状态：{_trim_summary(agent_profile.relationship_note, 72)}")
+        if agent_profile.preference_summary:
+            parts.append(f"偏好线索：{_trim_summary(agent_profile.preference_summary, 72)}")
+        if agent_profile.helpful_summary:
+            parts.append(f"之前更被接住的方式：{_trim_summary(agent_profile.helpful_summary, 72)}")
+    return "\n".join(parts)
+
+
+def _generate_duo_chat_lines(
+    *,
+    agent_profile: AgentProfile | None,
+    latest_summary: str,
+    latest_mood: MoodEntry | None,
+) -> list[HomeDuoLineResponse]:
+    if not qwen_client.is_configured:
+        return _fallback_duo_chat(
+            agent_profile=agent_profile,
+            latest_summary=latest_summary,
+            latest_mood=latest_mood,
+        )
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你要为 EmoBot 首页生成一段 4 句的双主角对话。"
+                "角色只有两个：momo 和 lulu。"
+                "要求严格交替：momo, lulu, momo, lulu。"
+                "她们是在首页小岛上轻声聊天，像两个会陪人的治愈角色，不是播报员，不是客服。"
+                "内容要围绕用户最近的情绪和状态，说得暖一点、自然一点，像真人轻声接话。"
+                "不要复读，不要喊口号，不要诊断，不要说教，不要提实时新闻。"
+                "每句 8 到 24 个中文字符。"
+                "每条都要带 mood 字段，可选：soft_smile, happy, curious, sleepy, cheer, sad, worried, fired_up。"
+                "只返回 JSON 数组，例如"
+                '[{"speaker":"momo","text":"今天先慢一点。","mood":"soft_smile"}]'
+            ),
+        },
+        {
+            "role": "user",
+            "content": _build_duo_chat_context(
+                agent_profile=agent_profile,
+                latest_summary=latest_summary,
+                latest_mood=latest_mood,
+            ),
+        },
+    ]
+
+    try:
+        raw_text = qwen_client.complete_chat(
+            messages=messages,
+            temperature=0.85,
+            max_tokens=260,
+        )
+        turns = _parse_duo_chat_lines(raw_text)
+        if len(turns) >= 4:
+            return turns[:DUO_CHAT_COUNT]
+    except Exception:  # noqa: BLE001
+        pass
+
+    return _fallback_duo_chat(
+        agent_profile=agent_profile,
+        latest_summary=latest_summary,
+        latest_mood=latest_mood,
+    )
+
+
 def _generate_whisper_lines(
     *,
     agent_profile: AgentProfile | None,
@@ -537,6 +749,11 @@ def get_home_summary(db: Session, *, device_id: str) -> HomeSummaryResponse:
         latest_treehole=latest_treehole,
         latest_blind_box=latest_blind_box,
     )
+    duo_chat_lines = _generate_duo_chat_lines(
+        agent_profile=agent_profile,
+        latest_summary=latest_summary,
+        latest_mood=latest_mood,
+    )
 
     return HomeSummaryResponse(
         momo_stage=growth.current_stage,
@@ -544,4 +761,6 @@ def get_home_summary(db: Session, *, device_id: str) -> HomeSummaryResponse:
         last_summary=latest_summary,
         entry_badges=entry_badges,
         whisper_lines=whisper_lines,
+        duo_chat_lines=duo_chat_lines,
+        duo_chat_turn_limit=DUO_CHAT_COUNT,
     )

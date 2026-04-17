@@ -27,10 +27,33 @@ class HomeService {
         lastSummary: '今天想从哪里开始都可以。',
         entryBadges: <String>['treehole', 'mood_weather', 'blind_box', 'growth'],
         whisperLines: <String>[
-          '我先在这里陪你一会。',
-          '不用马上整理好，我们慢一点也可以。',
-          '今天想从哪一块开始，都算在往前。',
+          '今天的你辛苦了。',
+          '黑夜再长，也会有一点星光。',
+          '如果想先安静一下，我就在这里。',
         ],
+        duoChatLines: <HomeDuoLineModel>[
+          HomeDuoLineModel(
+            speaker: 'momo',
+            text: '今天先把肩膀放松一点吧。',
+            mood: 'soft_smile',
+          ),
+          HomeDuoLineModel(
+            speaker: 'lulu',
+            text: '嗯，我们陪你慢慢把这口气放下来。',
+            mood: 'cheer',
+          ),
+          HomeDuoLineModel(
+            speaker: 'momo',
+            text: '如果只想待一会，也已经很好了。',
+            mood: 'happy',
+          ),
+          HomeDuoLineModel(
+            speaker: 'lulu',
+            text: '那我就把小岛再暖一点，等你靠过来。',
+            mood: 'curious',
+          ),
+        ],
+        duoChatTurnLimit: 4,
       );
     }
   }
