@@ -1,0 +1,30 @@
+.DS_Store
+Thumbs.db
+
+# Local tooling and workspace state
+.appdata/
+.claude/
+.generated_mobile_shell/
+.tmp/
+.tooling/
+
+# Python
+backend/.env
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+
+# Flutter / Dart
+mobile/.dart_tool/
+mobile/build/
+mobile/.packages
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+
+# Temp captures and local exports
+tmp-*.png
+
+# Original requirement source files
+*.docx
+*.pdf

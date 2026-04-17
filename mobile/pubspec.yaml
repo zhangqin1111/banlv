@@ -1,0 +1,26 @@
+name: emobot_mobile
+description: Original-demand-compatible MVP for the EmoBot healing companion app.
+publish_to: "none"
+
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  dio: ^5.7.0
+  flutter_riverpod: ^2.5.1
+  go_router: ^14.8.1
+  google_fonts: ^6.2.1
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
