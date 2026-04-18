@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models.agent_profile import AgentProfile
+from app.services.ai_budget_service import consume_ai_budget
 from app.services.llm_client import QwenClient
 
 qwen_client = QwenClient()
@@ -118,6 +119,18 @@ def _infer_explicit_preference(text: str) -> str | None:
     return None
 
 
+def _fallback_strategy_for_avoidance(
+    *,
+    primary_emotion: str,
+    blocked_strategy: str,
+) -> str:
+    if primary_emotion in {"low", "anxious"}:
+        return "quiet" if blocked_strategy != "quiet" else "listen"
+    if primary_emotion == "anger":
+        return "listen" if blocked_strategy != "listen" else "vent"
+    return "listen" if blocked_strategy != "listen" else "quiet"
+
+
 def analyze_turn(
     *,
     profile: AgentProfile,
@@ -143,6 +156,17 @@ def analyze_turn(
         strategy = profile.support_preference
     else:
         strategy = "listen"
+
+    if (
+        companion_mode not in {"listen", "vent", "organize", "quiet"}
+        and explicit_preference is None
+        and profile.avoid_strategy
+        and strategy == profile.avoid_strategy
+    ):
+        strategy = _fallback_strategy_for_avoidance(
+            primary_emotion=emotion,
+            blocked_strategy=profile.avoid_strategy,
+        )
 
     allow_mode_suggestion = (
         intent == "organize"
@@ -192,6 +216,7 @@ def build_agent_system_messages(
     topic_summary = profile.topic_summary or "none"
     preference_summary = profile.preference_summary or "none"
     helpful_summary = profile.helpful_summary or "none"
+    avoid_strategy = profile.avoid_strategy or "none"
     relationship_note = profile.relationship_note or "Stay gentle and user-led."
     reflection_note = profile.reflection_note or "Avoid sounding like a generic self-help bot."
 
@@ -203,6 +228,7 @@ def build_agent_system_messages(
                 f"- relationship_stage: {relationship_stage}\n"
                 f"- bond_score: {profile.bond_score}\n"
                 f"- preferred_comfort_style: {profile.support_preference}\n"
+                f"- avoid_strategy_for_now: {avoid_strategy}\n"
                 f"- long_memory: {memory_summary}\n"
                 f"- topic_memory: {topic_summary}\n"
                 f"- preference_memory: {preference_summary}\n"
@@ -231,17 +257,31 @@ def build_home_agent_context(profile: AgentProfile | None) -> list[str]:
     if profile is None:
         return []
 
-    parts: list[str] = []
-    if profile.preference_summary.strip():
-        parts.append(f"用户更容易被这样接住：{_trim_text(profile.preference_summary, MAX_AGENT_FIELD_CHARS)}")
-    if profile.helpful_summary.strip():
-        parts.append(f"之前有效的陪伴线索：{_trim_text(profile.helpful_summary, MAX_AGENT_FIELD_CHARS)}")
-    if profile.memory_summary.strip():
-        parts.append(f"长期记忆：{_trim_text(profile.memory_summary, MAX_AGENT_FIELD_CHARS)}")
-    if profile.relationship_note.strip():
-        parts.append(f"你们现在的关系状态：{_trim_text(profile.relationship_note, MAX_AGENT_FIELD_CHARS)}")
-    return parts
+    preference_summary = profile.preference_summary or ""
+    helpful_summary = profile.helpful_summary or ""
+    memory_summary = profile.memory_summary or ""
+    relationship_note = profile.relationship_note or ""
 
+    parts: list[str] = []
+    if preference_summary.strip():
+        parts.append(
+            f"user responds better to: {_trim_text(preference_summary, MAX_AGENT_FIELD_CHARS)}"
+        )
+    if helpful_summary.strip():
+        parts.append(
+            f"recently helpful pattern: {_trim_text(helpful_summary, MAX_AGENT_FIELD_CHARS)}"
+        )
+    if memory_summary.strip():
+        parts.append(
+            f"long memory: {_trim_text(memory_summary, MAX_AGENT_FIELD_CHARS)}"
+        )
+    if relationship_note.strip():
+        parts.append(
+            f"relationship note: {_trim_text(relationship_note, MAX_AGENT_FIELD_CHARS)}"
+        )
+    if profile.avoid_strategy:
+        parts.append(f"recently avoid this style: {profile.avoid_strategy}")
+    return parts
 
 def _merge_memory(*segments: str, limit: int) -> str:
     seen: set[str] = set()
@@ -325,7 +365,9 @@ def _build_fallback_profile_patch(
 
 
 async def _build_llm_profile_patch(
+    db: Session,
     *,
+    device_id: str,
     profile: AgentProfile,
     plan: AgentTurnPlan,
     user_message: str,
@@ -333,6 +375,8 @@ async def _build_llm_profile_patch(
     session_summary: str,
 ) -> dict[str, str]:
     if not qwen_client.is_configured:
+        return {}
+    if not consume_ai_budget(db, scope="agent_profile", device_id=device_id):
         return {}
 
     messages = [
@@ -393,6 +437,7 @@ async def _build_llm_profile_patch(
 async def update_profile_after_reply(
     db: Session,
     *,
+    device_id: str,
     profile: AgentProfile,
     plan: AgentTurnPlan,
     user_message: str,
@@ -403,6 +448,8 @@ async def update_profile_after_reply(
     explicit_preference = _infer_explicit_preference(user_message)
     if explicit_preference is not None:
         profile.support_preference = explicit_preference
+        if profile.avoid_strategy == explicit_preference:
+            profile.avoid_strategy = None
     elif profile.turn_count == 0:
         profile.support_preference = plan.strategy
 
@@ -425,6 +472,8 @@ async def update_profile_after_reply(
     )
     try:
         llm_patch = await _build_llm_profile_patch(
+            db,
+            device_id=device_id,
             profile=profile,
             plan=plan,
             user_message=user_message,
@@ -458,6 +507,8 @@ def update_profile_after_feedback(
         profile.helpful_turn_count += 1
         profile.bond_score = min(20, profile.bond_score + 1)
         profile.support_preference = profile.last_strategy or profile.support_preference
+        if profile.avoid_strategy == profile.last_strategy:
+            profile.avoid_strategy = None
         profile.helpful_summary = _merge_memory(
             profile.helpful_summary,
             f"更有效的陪伴方式偏向：{profile.support_preference}",
@@ -467,6 +518,7 @@ def update_profile_after_feedback(
         profile.reflection_note = "保持这种节奏，先接住再轻轻往前。"
     else:
         profile.reflection_note = "下一轮减少模板感和解决感，先贴近用户原话。"
+        profile.avoid_strategy = profile.last_strategy or profile.avoid_strategy
         if profile.last_strategy == "organize":
             profile.support_preference = "listen"
 

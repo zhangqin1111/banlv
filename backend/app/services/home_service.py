@@ -4,13 +4,16 @@ import json
 from sqlalchemy import delete, desc, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.agent_profile import AgentProfile
 from app.models.blind_box_draw import BlindBoxDraw
+from app.models.home_duo_chat import HomeDuoChat
 from app.models.home_whisper import HomeWhisper
 from app.models.mode_session import ModeSession
 from app.models.mood_entry import MoodEntry
 from app.models.treehole import TreeholeSession
 from app.schemas.home import HomeDuoLineResponse, HomeSummaryResponse
+from app.services.ai_budget_service import consume_ai_budget, get_daily_ai_remaining
 from app.services.growth_service import build_growth_summary
 from app.services.llm_client import QwenClient
 from app.services.momo_agent_service import build_home_agent_context
@@ -23,6 +26,8 @@ WHISPER_CHAR_LIMIT = 28
 WHISPER_VERSION = "v2"
 DUO_CHAT_COUNT = 4
 DUO_CHAT_CHAR_LIMIT = 24
+DUO_CHAT_TTL = timedelta(hours=8)
+DUO_CHAT_VERSION = "v1"
 qwen_client = QwenClient()
 
 
@@ -33,6 +38,12 @@ def _trim_summary(text: str, limit: int = 120) -> str:
     if len(cleaned) <= limit:
         return cleaned
     return f"{cleaned[: limit - 1].rstrip()}…"
+
+
+def _as_utc(timestamp: datetime) -> datetime:
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc)
 
 
 def _build_latest_summary_candidates(
@@ -135,8 +146,36 @@ def _build_whisper_snapshot_key(
             f"{agent_profile.last_strategy}:"
             f"{agent_profile.helpful_turn_count}:"
             f"{agent_profile.updated_at.isoformat()}"
-        )
+    )
     return f"{WHISPER_VERSION}:{current_stage}:{latest_emotion}:{latest_marker}:{profile_marker}"
+
+
+def _build_duo_snapshot_key(
+    *,
+    current_stage: str,
+    agent_profile: AgentProfile | None,
+    latest_mood: MoodEntry | None,
+    latest_mode: ModeSession | None,
+    latest_treehole: TreeholeSession | None,
+    latest_blind_box: BlindBoxDraw | None,
+) -> str:
+    latest_time = _latest_activity_time(
+        latest_mood=latest_mood,
+        latest_mode=latest_mode,
+        latest_treehole=latest_treehole,
+        latest_blind_box=latest_blind_box,
+    )
+    latest_marker = latest_time.isoformat() if latest_time else "empty"
+    latest_emotion = latest_mood.emotion if latest_mood is not None else "none"
+    profile_marker = "none"
+    if agent_profile is not None:
+        profile_marker = (
+            f"{agent_profile.support_preference}:"
+            f"{agent_profile.last_strategy}:"
+            f"{agent_profile.last_emotion}:"
+            f"{agent_profile.updated_at.isoformat()}"
+        )
+    return f"{DUO_CHAT_VERSION}:{current_stage}:{latest_emotion}:{latest_marker}:{profile_marker}"
 
 
 def _load_cached_whispers(
@@ -157,10 +196,42 @@ def _load_cached_whispers(
         return []
 
     created_at = rows[0].created_at
-    if datetime.now(timezone.utc) - created_at > WHISPER_TTL:
+    if datetime.now(timezone.utc) - _as_utc(created_at) > WHISPER_TTL:
         return []
 
     return [row.text for row in rows[:WHISPER_COUNT] if row.text.strip()]
+
+
+def _load_cached_duo_chat(
+    db: Session,
+    *,
+    device_id: str,
+    snapshot_key: str,
+) -> list[HomeDuoLineResponse]:
+    rows = db.scalars(
+        select(HomeDuoChat)
+        .where(
+            HomeDuoChat.device_id == device_id,
+            HomeDuoChat.snapshot_key == snapshot_key,
+        )
+        .order_by(HomeDuoChat.sort_order.asc(), HomeDuoChat.created_at.desc())
+    ).all()
+    if len(rows) < 2:
+        return []
+
+    created_at = rows[0].created_at
+    if datetime.now(timezone.utc) - _as_utc(created_at) > DUO_CHAT_TTL:
+        return []
+
+    return [
+        HomeDuoLineResponse(
+            speaker=row.speaker,
+            text=row.text,
+            mood=row.mood,
+        )
+        for row in rows[:DUO_CHAT_COUNT]
+        if row.text.strip()
+    ]
 
 
 def _build_whisper_context(
@@ -188,6 +259,8 @@ def _build_whisper_context(
         parts.append(f"最近树洞方向：{_trim_summary(latest_treehole.summary_text, 90)}")
 
     parts.extend(build_home_agent_context(agent_profile))
+    if agent_profile is not None and agent_profile.avoid_strategy:
+        parts.append(f"recently avoid this style: {agent_profile.avoid_strategy}")
 
     helpful_sessions = [
         item for item in recent_treeholes if item.helpful_score is not None and item.helpful_score > 0
@@ -201,6 +274,10 @@ def _build_whisper_context(
         if helpful_summary:
             parts.append(f"之前更接住 TA 的陪伴线索：{helpful_summary}")
 
+    if agent_profile is not None and agent_profile.avoid_strategy:
+        parts.append(f"recently avoid this style: {agent_profile.avoid_strategy}")
+    if agent_profile is not None and agent_profile.avoid_strategy:
+        parts.append(f"recently avoid this style: {agent_profile.avoid_strategy}")
     return "\n".join(parts)
 
 
@@ -485,32 +562,41 @@ def _build_duo_chat_context(
     latest_summary: str,
     latest_mood: MoodEntry | None,
 ) -> str:
-    parts = [f"最近摘要：{_trim_summary(latest_summary, 72)}"]
+    parts = [f"?????{_trim_summary(latest_summary, 72)}"]
     if latest_mood is not None:
         note = _trim_summary(latest_mood.note_text or "", 42)
-        note_part = f"；备注：{note}" if note else ""
+        note_part = f"????{note}" if note else ""
         parts.append(
-            f"最近情绪：{latest_mood.emotion}，强度 {latest_mood.intensity}/10{note_part}"
+            f"?????{latest_mood.emotion}??? {latest_mood.intensity}/10{note_part}"
         )
     if agent_profile is not None:
         if agent_profile.support_preference:
-            parts.append(f"更喜欢被这样陪：{agent_profile.support_preference}")
+            parts.append(f"????????{agent_profile.support_preference}")
         if agent_profile.relationship_note:
-            parts.append(f"关系状态：{_trim_summary(agent_profile.relationship_note, 72)}")
+            parts.append(f"?????{_trim_summary(agent_profile.relationship_note or '', 72)}")
         if agent_profile.preference_summary:
-            parts.append(f"偏好线索：{_trim_summary(agent_profile.preference_summary, 72)}")
+            parts.append(f"?????{_trim_summary(agent_profile.preference_summary or '', 72)}")
         if agent_profile.helpful_summary:
-            parts.append(f"之前更被接住的方式：{_trim_summary(agent_profile.helpful_summary, 72)}")
+            parts.append(f"??????????{_trim_summary(agent_profile.helpful_summary or '', 72)}")
+        if agent_profile.avoid_strategy:
+            parts.append(f"??????????{agent_profile.avoid_strategy}")
     return "\n".join(parts)
-
 
 def _generate_duo_chat_lines(
     *,
+    db: Session,
+    device_id: str,
     agent_profile: AgentProfile | None,
     latest_summary: str,
     latest_mood: MoodEntry | None,
 ) -> list[HomeDuoLineResponse]:
     if not qwen_client.is_configured:
+        return _fallback_duo_chat(
+            agent_profile=agent_profile,
+            latest_summary=latest_summary,
+            latest_mood=latest_mood,
+        )
+    if not consume_ai_budget(db, scope="home_duo", device_id=device_id):
         return _fallback_duo_chat(
             agent_profile=agent_profile,
             latest_summary=latest_summary,
@@ -564,6 +650,8 @@ def _generate_duo_chat_lines(
 
 def _generate_whisper_lines(
     *,
+    db: Session,
+    device_id: str,
     agent_profile: AgentProfile | None,
     latest_summary: str,
     latest_mood: MoodEntry | None,
@@ -573,6 +661,12 @@ def _generate_whisper_lines(
     recent_treeholes: list[TreeholeSession],
 ) -> list[str]:
     if not qwen_client.is_configured:
+        return _fallback_whispers(
+            agent_profile=agent_profile,
+            latest_summary=latest_summary,
+            latest_mood=latest_mood,
+        )
+    if not consume_ai_budget(db, scope="home_whisper", device_id=device_id):
         return _fallback_whispers(
             agent_profile=agent_profile,
             latest_summary=latest_summary,
@@ -646,6 +740,43 @@ def _store_whispers(
     return usable_lines
 
 
+def _store_duo_chat(
+    db: Session,
+    *,
+    device_id: str,
+    snapshot_key: str,
+    turns: list[HomeDuoLineResponse],
+) -> list[HomeDuoLineResponse]:
+    usable_turns = [
+        HomeDuoLineResponse(
+            speaker=turn.speaker,
+            text=_trim_duo_line(turn.text),
+            mood=_normalize_duo_mood(turn.mood),
+        )
+        for turn in turns[:DUO_CHAT_COUNT]
+        if turn.text.strip()
+    ]
+    if len(usable_turns) < 2:
+        return []
+
+    db.execute(delete(HomeDuoChat).where(HomeDuoChat.device_id == device_id))
+    db.add_all(
+        [
+            HomeDuoChat(
+                device_id=device_id,
+                snapshot_key=snapshot_key,
+                sort_order=index,
+                speaker=turn.speaker,
+                mood=turn.mood,
+                text=turn.text,
+            )
+            for index, turn in enumerate(usable_turns)
+        ]
+    )
+    db.commit()
+    return usable_turns
+
+
 def _resolve_home_whispers(
     db: Session,
     *,
@@ -682,6 +813,8 @@ def _resolve_home_whispers(
         .limit(3)
     ).all()
     generated = _generate_whisper_lines(
+        db=db,
+        device_id=device_id,
         agent_profile=agent_profile,
         latest_summary=latest_summary,
         latest_mood=latest_mood,
@@ -696,6 +829,51 @@ def _resolve_home_whispers(
         snapshot_key=snapshot_key,
         lines=generated,
     )
+
+
+def _resolve_home_duo_chat(
+    db: Session,
+    *,
+    device_id: str,
+    current_stage: str,
+    agent_profile: AgentProfile | None,
+    latest_summary: str,
+    latest_mood: MoodEntry | None,
+    latest_mode: ModeSession | None,
+    latest_treehole: TreeholeSession | None,
+    latest_blind_box: BlindBoxDraw | None,
+) -> list[HomeDuoLineResponse]:
+    snapshot_key = _build_duo_snapshot_key(
+        current_stage=current_stage,
+        agent_profile=agent_profile,
+        latest_mood=latest_mood,
+        latest_mode=latest_mode,
+        latest_treehole=latest_treehole,
+        latest_blind_box=latest_blind_box,
+    )
+
+    cached = _load_cached_duo_chat(
+        db,
+        device_id=device_id,
+        snapshot_key=snapshot_key,
+    )
+    if len(cached) >= 2:
+        return cached[:DUO_CHAT_COUNT]
+
+    generated = _generate_duo_chat_lines(
+        db=db,
+        device_id=device_id,
+        agent_profile=agent_profile,
+        latest_summary=latest_summary,
+        latest_mood=latest_mood,
+    )
+    stored = _store_duo_chat(
+        db,
+        device_id=device_id,
+        snapshot_key=snapshot_key,
+        turns=generated,
+    )
+    return stored or generated
 
 
 def get_home_summary(db: Session, *, device_id: str) -> HomeSummaryResponse:
@@ -749,16 +927,24 @@ def get_home_summary(db: Session, *, device_id: str) -> HomeSummaryResponse:
         latest_treehole=latest_treehole,
         latest_blind_box=latest_blind_box,
     )
-    duo_chat_lines = _generate_duo_chat_lines(
+    duo_chat_lines = _resolve_home_duo_chat(
+        db,
+        device_id=device_id,
+        current_stage=growth.current_stage,
         agent_profile=agent_profile,
         latest_summary=latest_summary,
         latest_mood=latest_mood,
+        latest_mode=latest_mode,
+        latest_treehole=latest_treehole,
+        latest_blind_box=latest_blind_box,
     )
 
     return HomeSummaryResponse(
         momo_stage=growth.current_stage,
         growth_points=growth.growth_points,
         last_summary=latest_summary,
+        ai_daily_limit=get_settings().daily_ai_turn_limit,
+        ai_remaining_today=get_daily_ai_remaining(db),
         entry_badges=entry_badges,
         whisper_lines=whisper_lines,
         duo_chat_lines=duo_chat_lines,

@@ -14,6 +14,7 @@ class AgentProfile(Base):
     turn_count: Mapped[int] = mapped_column(Integer, default=0)
     helpful_turn_count: Mapped[int] = mapped_column(Integer, default=0)
     support_preference: Mapped[str] = mapped_column(String(24), default="listen")
+    avoid_strategy: Mapped[str | None] = mapped_column(String(24), nullable=True)
     last_strategy: Mapped[str] = mapped_column(String(24), default="listen")
     last_intent: Mapped[str] = mapped_column(String(24), default="share")
     last_emotion: Mapped[str] = mapped_column(String(24), default="neutral")

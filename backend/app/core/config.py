@@ -16,6 +16,8 @@ class Settings:
     qwen_api_key: str = ""
     qwen_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     qwen_model: str = "qwen-plus"
+    daily_ai_turn_limit: int = 100
+    treehole_session_ai_turn_limit: int = 6
 
 
 @lru_cache
@@ -35,4 +37,8 @@ def get_settings() -> Settings:
             "https://dashscope.aliyuncs.com/compatible-mode/v1",
         ),
         qwen_model=os.getenv("QWEN_MODEL", "qwen-plus"),
+        daily_ai_turn_limit=int(os.getenv("DAILY_AI_TURN_LIMIT", "100")),
+        treehole_session_ai_turn_limit=int(
+            os.getenv("TREEHOLE_SESSION_AI_TURN_LIMIT", "6")
+        ),
     )

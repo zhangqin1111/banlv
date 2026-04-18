@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy import asc, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.crisis_event import CrisisEvent
 from app.models.mood_entry import MoodEntry
 from app.models.treehole import TreeholeMessage, TreeholeSession
@@ -18,6 +19,7 @@ from app.schemas.treehole import (
     TreeholeSessionCreateRequest,
     TreeholeSessionCreateResponse,
 )
+from app.services.ai_budget_service import consume_ai_budget
 from app.services.growth_service import award_growth
 from app.services.llm_client import QwenClient
 from app.services.momo_agent_service import (
@@ -97,6 +99,17 @@ COMPANION_MODE_PROMPTS = {
         "接受很短、零碎、沉默式表达。用更少的话回应，不追问。"
     ),
 }
+
+
+def _session_llm_reply_count(history: list[TreeholeMessage]) -> int:
+    return sum(1 for item in history if item.role == "assistant")
+
+
+def _session_can_use_llm(history: list[TreeholeMessage]) -> bool:
+    limit = get_settings().treehole_session_ai_turn_limit
+    if limit <= 0:
+        return True
+    return _session_llm_reply_count(history) < limit
 
 
 def create_session(
@@ -537,7 +550,11 @@ async def _refresh_session_memory(
         return
 
     summary_text = ""
-    if qwen_client.is_configured:
+    if qwen_client.is_configured and consume_ai_budget(
+        db,
+        scope="treehole_memory",
+        device_id=session.device_id,
+    ):
         try:
             summary_text = await qwen_client.complete_chat_async(
                 messages=[
@@ -565,9 +582,19 @@ async def _collect_reply_chunks(
     device_id: str,
     session: TreeholeSession,
     user_message: str,
+    history: list[TreeholeMessage],
     agent_messages: list[dict[str, str]] | None = None,
     companion_mode: str | None = None,
 ):
+    can_use_llm = (
+        qwen_client.is_configured
+        and _session_can_use_llm(history)
+        and consume_ai_budget(
+            db,
+            scope="treehole_reply",
+            device_id=device_id,
+        )
+    )
     stream = (
         qwen_client.stream_chat(
             messages=_build_message_history(
@@ -580,7 +607,7 @@ async def _collect_reply_chunks(
             temperature=0.55,
             max_tokens=220,
         )
-        if qwen_client.is_configured
+        if can_use_llm
         else _fallback_reply(user_message, companion_mode)
     )
     async for chunk in stream:
@@ -593,6 +620,7 @@ async def _generate_reply_text(
     device_id: str,
     session: TreeholeSession,
     user_message: str,
+    history: list[TreeholeMessage],
     agent_messages: list[dict[str, str]] | None = None,
     companion_mode: str | None = None,
 ) -> str:
@@ -603,6 +631,7 @@ async def _generate_reply_text(
             device_id=device_id,
             session=session,
             user_message=user_message,
+            history=history,
             agent_messages=agent_messages,
             companion_mode=companion_mode,
         ):
@@ -666,6 +695,7 @@ async def reply_once(
         device_id=device_id,
         session=session,
         user_message=normalized_message,
+        history=history,
         agent_messages=agent_messages,
         companion_mode=companion_mode,
     )
@@ -693,6 +723,7 @@ async def reply_once(
     )
     await update_profile_after_reply(
         db,
+        device_id=device_id,
         profile=profile,
         plan=turn_plan,
         user_message=normalized_message,
@@ -780,6 +811,7 @@ async def stream_reply(
                 device_id=device_id,
                 session=session,
                 user_message=normalized_message,
+                history=history,
                 agent_messages=agent_messages,
                 companion_mode=companion_mode,
             ):
@@ -809,6 +841,7 @@ async def stream_reply(
     )
     await update_profile_after_reply(
         db,
+        device_id=device_id,
         profile=profile,
         plan=turn_plan,
         user_message=normalized_message,

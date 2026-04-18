@@ -32,6 +32,8 @@ class HomeSummaryModel {
     this.momoStage = 'seed',
     this.growthPoints = 0,
     this.lastSummary = '今天想从哪里开始都可以。',
+    this.aiDailyLimit = 100,
+    this.aiRemainingToday = 100,
     this.entryBadges = const <String>[],
     this.whisperLines = const <String>[],
     this.duoChatLines = const <HomeDuoLineModel>[],
@@ -43,6 +45,8 @@ class HomeSummaryModel {
       momoStage: json['momo_stage'] as String? ?? 'seed',
       growthPoints: json['growth_points'] as int? ?? 0,
       lastSummary: json['last_summary'] as String? ?? '今天想从哪里开始都可以。',
+      aiDailyLimit: json['ai_daily_limit'] as int? ?? 100,
+      aiRemainingToday: json['ai_remaining_today'] as int? ?? 100,
       entryBadges: (json['entry_badges'] as List<dynamic>? ?? <dynamic>[])
           .map((dynamic item) => item.toString())
           .toList(),
@@ -61,6 +65,8 @@ class HomeSummaryModel {
   final String momoStage;
   final int growthPoints;
   final String lastSummary;
+  final int aiDailyLimit;
+  final int aiRemainingToday;
   final List<String> entryBadges;
   final List<String> whisperLines;
   final List<HomeDuoLineModel> duoChatLines;

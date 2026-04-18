@@ -11,6 +11,8 @@ class HomeSummaryResponse(BaseModel):
     momo_stage: str = "bloom"
     growth_points: int = 18
     last_summary: str = "今天想从哪里开始都可以。"
+    ai_daily_limit: int = 100
+    ai_remaining_today: int = 100
     entry_badges: list[str] = Field(
         default_factory=lambda: ["treehole", "mood_weather", "blind_box", "growth"]
     )

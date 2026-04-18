@@ -25,6 +25,8 @@ class HomeService {
         momoStage: 'seed',
         growthPoints: 0,
         lastSummary: '今天想从哪里开始都可以。',
+        aiDailyLimit: 100,
+        aiRemainingToday: 100,
         entryBadges: <String>['treehole', 'mood_weather', 'blind_box', 'growth'],
         whisperLines: <String>[
           '今天的你辛苦了。',
